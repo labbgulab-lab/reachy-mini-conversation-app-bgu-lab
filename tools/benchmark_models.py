@@ -48,8 +48,8 @@ def get_api_key() -> str:
     p = ROOT / ".gemini_key"
     if p.exists():
         return p.read_text().strip()
-    tomer = ROOT.parent / "reachy-mini llm gemini token.txt"
-    return tomer.read_text().strip()
+    token_file = ROOT.parent / "reachy-mini llm gemini token.txt"
+    return token_file.read_text().strip()
 
 
 def load_audio_as_16k_int16(wav_path: Path) -> np.ndarray:

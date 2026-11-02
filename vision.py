@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Camera vision: the robot sees through its head camera while it talks.
 
-Tomer, 2026-10-05: "Reachy Mini has a camera and I want him to be able to see
+2026-10-05: "Reachy Mini has a camera and I want him to be able to see
 me. In the desktop app he can see me, so why can't we?" The end goal is a
 robot that can name what it sees ("what am I holding?", "what colour is my
 shirt?").

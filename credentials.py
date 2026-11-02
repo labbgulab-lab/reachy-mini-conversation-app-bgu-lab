@@ -154,9 +154,9 @@ def _legacy_gemini_key() -> tuple:
     local_key = SCRIPT_DIR / ".gemini_key"
     if local_key.exists():
         return local_key.read_text(encoding="utf-8").strip(), ".gemini_key"
-    tomer_path = SCRIPT_DIR.resolve().parent / "reachy-mini llm gemini token.txt"
-    if tomer_path.exists():
-        return tomer_path.read_text(encoding="utf-8").strip(), "local token file"
+    token_path = SCRIPT_DIR.resolve().parent / "reachy-mini llm gemini token.txt"
+    if token_path.exists():
+        return token_path.read_text(encoding="utf-8").strip(), "local token file"
     return "", ""
 
 
@@ -189,7 +189,7 @@ def resolve(provider: Optional[str] = None,
                           key_id="(passed in)", label="passed at launch",
                           source="--api-key")
 
-    # The hub owns the keys (Tomer, 2026-09-24): it pipes the assigned one into
+    # The hub owns the keys (2026-09-24): it pipes the assigned one into
     # this process's environment at launch, so no copy lives on the robot's
     # disk and none appears in a process list. It outranks everything stored.
     hub_key = os.environ.get(HUB_KEY_ENV, "").strip() if use_hub else ""

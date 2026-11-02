@@ -234,8 +234,8 @@ def deploy_one(robot, args) -> int:
                 sent += 1
 
         # No key is ever stored on a robot any more: robot-hub owns the keys
-        # and pipes the assigned one into the process at launch (Tomer,
-        # 2026-09-24). Remove the copy earlier deploys left behind.
+        # and pipes the assigned one into the process at launch
+        # (2026-09-24). Remove the copy earlier deploys left behind.
         try:
             sftp.remove(f"{REMOTE_ROOT}/.gemini_key")
             print("  removed the old .gemini_key (keys now come from the hub)")

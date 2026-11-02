@@ -2,7 +2,7 @@
 
 SSH-execs the robot streaming player, waits for 'ready', sends a few
 motion commands directly via the new 0xFFFFFFFC sentinel + JSON payload,
-sleeps between each so Tomer (at the robot) can see each one happen,
+sleeps between each so the user (at the robot) can see each one happen,
 then EOF and clean exit.
 
 Sequence:

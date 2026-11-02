@@ -305,7 +305,7 @@ Definition of done for Phase B:
 
 ### Phase C: polish (backlog)
 
-Treat as optional. Do not start unless Tomer asks.
+Treat as optional. Do not start unless the user asks.
 
 1. Error states: SSH drop, Gemini failure, robot-player crash. Each shows a banner with a Reset button.
 2. Connection retry: if SSH drops, attempt 3 reconnects with backoff before going to ERROR.

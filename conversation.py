@@ -305,7 +305,7 @@ ENABLE_TOOL_CALLS = True
 
 # Opening line: the robot speaks first, so a visitor who walked up to it --
 # not the operator at the dashboard -- knows the conversation has started
-# (Tomer, 2026-10-12). The brain says it in its own voice and language, so it
+# (2026-10-12). The brain says it in its own voice and language, so it
 # is a short instruction, not a script. Measured on gemini-3.8-live: spoken
 # reply in 1.1-1.6 s. Gemini only: gpt-live-1 has no text-input path here.
 # REACHY_OPENER=0 turns it off.
@@ -496,7 +496,7 @@ _DIRECTOR = None
 
 # Extra loudness on top of the speaker's own volume, set by the dashboard's
 # volume bar above 100%. The hub already puts the speaker at 100% on Connect,
-# so "louder" can only come from the signal (Tomer, 2026-10-05). 1.0 = off.
+# so "louder" can only come from the signal (2026-10-05). 1.0 = off.
 OUTPUT_GAIN = 1.0
 OUTPUT_GAIN_MAX = 2.0
 
@@ -615,9 +615,9 @@ def get_api_key() -> str:
     local_key = SCRIPT_DIR / ".gemini_key"
     if local_key.exists():
         return local_key.read_text().strip()
-    tomer_path = SCRIPT_DIR.resolve().parent / "reachy-mini llm gemini token.txt"
-    if tomer_path.exists():
-        return tomer_path.read_text().strip()
+    token_path = SCRIPT_DIR.resolve().parent / "reachy-mini llm gemini token.txt"
+    if token_path.exists():
+        return token_path.read_text().strip()
     sys.exit(
         "No Gemini API key found. Set GEMINI_API_KEY env var, "
         f"or create {local_key}"

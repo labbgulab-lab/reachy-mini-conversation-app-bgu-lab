@@ -4,7 +4,7 @@
 Gemini moves the robot by calling play_emotion / dance / move_head while it
 talks. gpt-live-1 cannot do that in time: its tools sit behind a "delegation"
 round trip that lands a gesture seconds after the words (providers/gpt_live.py),
-so until 2026-10-05 a GPT-Live robot only swayed to its own speech. Tomer:
+so until 2026-10-05 a GPT-Live robot only swayed to its own speech. The user:
 "we must have movement greater than swaying while he speaks."
 
 So the gestures are chosen *beside* the conversation instead of inside it,
@@ -121,7 +121,7 @@ class MotionDirector:
         self._last_trigger_t = 0.0
         self._last_emotion = ""
         # The move already made in this reply, so the picker can decide
-        # whether a second one is called for (Tomer: "1 or 2 as he sees fit").
+        # whether a second one is called for ("1 or 2 as he sees fit").
         self._turn_move = ""
         self._tasks: set = set()
         self._turn = 0

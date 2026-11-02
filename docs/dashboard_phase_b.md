@@ -4,7 +4,7 @@ The big visual phase. Phase A delivered functionality; Phase A.5 added Stop/Star
 
 ## Reference design
 
-Tomer provided a mockup image. Describing it textually for the implementation:
+The user provided a mockup image. Describing it textually for the implementation:
 
 - **Title bar** across the top: "Reachy Mini Handler Dashboard".
 - **Two-column layout** below it. Left column ~55-60%, right column ~40-45%. The page fills the viewport at minimum 1280px wide; panels scroll internally, the page itself does not.

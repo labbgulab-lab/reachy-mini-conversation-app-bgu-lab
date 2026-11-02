@@ -13,7 +13,7 @@ Three small controls by the Start Conversation button:
     provider default.
   * **ElevenLabs voice**: off, or on with a voice from the account. On means
     the brain still thinks and the robot speaks with ElevenLabs v4. Choosing
-    GPT-Live turns it off: ElevenLabs is for Gemini only (Tomer, 2026-10-05).
+    GPT-Live turns it off: ElevenLabs is for Gemini only (2026-10-05).
   * **Camera vision**: on (the default) or off. On, the robot sees through
     its head camera and can name what it sees (vision.py).
 
