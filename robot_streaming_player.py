@@ -53,7 +53,7 @@ import queue
 import threading
 import time
 import traceback
-from typing import Tuple, Optional
+from typing import Any, Optional, Tuple
 
 import numpy as np
 
@@ -159,6 +159,17 @@ def _emit_player_startup() -> None:
         sdk_version = "unknown"
     log_player.info("player.startup sdk_version=%s daemon_status=starting",
                     sdk_version)
+    # The hub reads this to know it may send the commands below (an older
+    # player ignores them with a warning, so the hub falls back).
+    log_player.info("player.features %s", " ".join(PLAYER_FEATURES))
+
+
+# Motion-frame commands beyond moves (2026-11-03, the hub's robot groups):
+#   {"type": "clock", "id": N}   -> prints "player.clock id=N t=<time.time()>"
+#                                   so the hub can measure this robot's clock
+#   {"type": "start_at", "t": T} -> the next audio waits until time.time() >= T,
+#                                   so several robots start one line together
+PLAYER_FEATURES = ("clock", "start_at")
 
 
 def read_exact(stream, n: int) -> Optional[bytes]:
@@ -315,6 +326,18 @@ class SharedState:
         # Primary move + its start time. Set by main() before threads run.
         self._primary_move = None
         self._move_start_t: float = 0.0
+        # time.time() the next audio waits for (0 = none): start_at.
+        self._hold_until = 0.0
+
+    def hold_audio_until(self, t: float) -> None:
+        with self._lock:
+            self._hold_until = float(t)
+
+    def take_hold(self) -> float:
+        """The pending start time (0 if none), cleared as it is taken."""
+        with self._lock:
+            t, self._hold_until = self._hold_until, 0.0
+            return t
 
     def set_offsets_from_hop(self, hop: dict) -> None:
         offsets = (
@@ -485,7 +508,9 @@ def motion_loop(mini: ReachyMini,
 
 def audio_player(mini: ReachyMini,
                  audio_q: "queue.Queue[np.ndarray | None]",
-                 stop: threading.Event) -> None:
+                 stop: threading.Event,
+                 state: "SharedState",
+                 tapper: Any) -> None:
     while not stop.is_set():
         try:
             samples = audio_q.get(timeout=0.2)
@@ -493,6 +518,22 @@ def audio_player(mini: ReachyMini,
             continue
         if samples is None:
             break
+        # start_at: hold this line until the agreed moment (robot groups).
+        start_at = state.take_hold()
+        if start_at:
+            wait = start_at - time.time()
+            if wait > 0:
+                stop.wait(min(wait, 5.0))
+            log_player.info("player.start_at late_ms=%d", int(max(0.0, -wait) * 1000))
+        # The speech sway follows the audio as it goes out, not as it
+        # arrives: a line held for start_at must not sway before it sounds.
+        try:
+            hops = tapper.feed(samples, sr=TAPPER_SR)
+        except Exception as e:
+            log_player.warning("tapper.feed failed: %s", e)
+            hops = []
+        if hops:
+            state.set_offsets_from_hop(hops[-1])
         try:
             mini.media.push_audio_sample(samples)
         except Exception as e:
@@ -518,6 +559,16 @@ def _handle_motion(cmd: dict, mini: ReachyMini, state: SharedState,
     """
     kind = cmd.get("type")
     try:
+        if kind == "clock":
+            # Written straight to stderr, not through logging: the hub times
+            # the round trip, so the reply must leave at once.
+            sys.stderr.write("player.clock id={} t={:.6f}\n".format(
+                int(cmd.get("id", 0)), time.time()))
+            sys.stderr.flush()
+            return
+        if kind == "start_at":
+            state.hold_audio_until(float(cmd.get("t", 0.0)))
+            return
         if kind == "emotion":
             name = cmd.get("name", "")
             if not _RECORDED_MOVES_AVAILABLE or recorded_moves is None:
@@ -622,7 +673,7 @@ def main() -> int:
         stats = LoopFreqStats()
 
         audio_th = threading.Thread(
-            target=audio_player, args=(mini, audio_q, stop),
+            target=audio_player, args=(mini, audio_q, stop, state, tapper),
             name="audio-player", daemon=True,
         )
         motion_th = threading.Thread(
@@ -672,6 +723,7 @@ def main() -> int:
                     except Exception as e:
                         log_xport.warning("clear_player failed: %s", e)
                     state.clear_offsets()
+                    state.take_hold()         # a cut line's start_at goes with it
                     continue
 
                 if length == LISTENING_START:
@@ -727,14 +779,7 @@ def main() -> int:
                     duration_ms = int(samples.size / float(sr) * 1000)
                     log_player.info("player.audio.play_start samples=%d duration_ms=%d",
                                     samples.size, duration_ms)
-                try:
-                    hops = tapper.feed(samples, sr=TAPPER_SR)
-                except Exception as e:
-                    log_player.warning("tapper.feed failed: %s", e)
-                    hops = []
-                if hops:
-                    state.set_offsets_from_hop(hops[-1])
-
+                # (the speech sway is fed in audio_player, as the audio goes out)
                 try:
                     audio_q.put(samples.copy(), timeout=2.0)
                 except queue.Full:
