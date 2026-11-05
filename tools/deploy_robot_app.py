@@ -33,10 +33,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import fleet  # noqa: E402
-from conversation import (ROBOT_HOST, ROBOT_USER, ROBOT_PASSWORD,  # noqa: E402
-                          ROBOT_PYTHON)
-
-REMOTE_ROOT = "/home/pollen/reachy_chat"
+# Constants come from deploy_config, not conversation: importing conversation
+# pulls in google-genai, scipy and sounddevice, and the hub runs this tool with
+# its own Python, which has paramiko and none of those.
+from deploy_config import (ROBOT_HOST, ROBOT_USER, ROBOT_PASSWORD,  # noqa: E402
+                           ROBOT_PYTHON, REMOTE_ROOT)
 
 # Everything the app needs to start. Deliberately explicit rather than a glob:
 # a deploy that silently starts shipping .venv/ or conversations/ would fill
@@ -44,6 +45,8 @@ REMOTE_ROOT = "/home/pollen/reachy_chat"
 FILES = [
     "laptop_chat.py",
     "conversation.py",
+    # Robot address and SSH login; conversation.py and the deploy tools share it.
+    "deploy_config.py",
     "system.py",
     # The fleet modules: who this robot is, whose key it talks through, and
     # which character it is wearing. Without these the app will not import.
@@ -74,6 +77,8 @@ FILES = [
     # show_editor imports it for synthesise()/text_hash() so a line edited in
     # the browser is byte-identical to one built from the terminal.
     "show_editor.py",
+    # Wizard of Oz free lines: typed text, recorded in the show voice.
+    "show_lines.py",
     "tools/build_show.py",
     "summary.py",
     "robot_play.py",
@@ -100,6 +105,7 @@ IMPORT_CHECKS = [
     "vision",
     "conversation",
     "show_editor",
+    "show_lines",
     "system",
     "web.server",
 ]
@@ -139,9 +145,14 @@ def _ensure_deps(c: paramiko.SSHClient) -> None:
     print("  " + (text.splitlines()[-1] if text else "installed"))
 
 
+# Never shipped with --with-show: the laptop's own cache of typed Wizard of Oz
+# lines (show_lines.py). The robot records its own.
+SKIP_PARTS = {"__pycache__", "said"}
+
+
 def _iter_dir(local_dir: Path):
     for p in sorted(local_dir.rglob("*")):
-        if p.is_dir() or "__pycache__" in p.parts or p.suffix == ".pyc":
+        if p.is_dir() or SKIP_PARTS.intersection(p.parts) or p.suffix == ".pyc":
             continue
         yield p
 

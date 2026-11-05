@@ -64,6 +64,17 @@
       <div id="np-text" class="rtl mt-2 text-sm text-slate-300 min-h-[1.25rem]"></div>
     </div>
 
+    <!-- Wizard of Oz: a line nobody scripted. It is recorded while you type,
+         so Say plays it at once. -->
+    <div class="mb-4 flex items-center gap-2">
+      <input id="say-text" type="text" dir="auto" maxlength="600"
+             placeholder="Type a new line for Reachy"
+             class="flex-1 rounded bg-slate-800 border border-slate-700 px-3 py-1.5 text-sm">
+      <span id="say-status" class="text-xs text-slate-400 w-20"></span>
+      <button id="say-btn"
+              class="rounded bg-sky-600 hover:bg-sky-500 px-3 py-1.5 text-sm font-medium">Say</button>
+    </div>
+
     <p class="text-xs text-slate-400 mb-3">
       <b class="text-slate-200">Space</b> fires the outlined cue and advances ·
       <b class="text-slate-200">↑ ↓</b> move without firing ·

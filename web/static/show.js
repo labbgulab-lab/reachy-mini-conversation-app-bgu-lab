@@ -333,7 +333,7 @@
     clearInterval(playTimer);
     const cue = cues[payload.cue_id] || {};
     el.npLabel.textContent = payload.label || payload.cue_id;
-    el.npText.textContent = cue.text || "";
+    el.npText.textContent = cue.text || payload.text || "";
     const total = payload.duration_s || 0;
     if (!total) {
       el.npBar.style.width = "0%";
@@ -403,6 +403,55 @@
       ev.preventDefault();
       fire(id, false);
     }
+  });
+
+  // ----- Wizard of Oz: say a typed line -----
+
+  const sayText = $("say-text");
+  const sayStatus = $("say-status");
+  let prepTimer = null;
+
+  sayText.addEventListener("input", () => {
+    clearTimeout(prepTimer);
+    const text = sayText.value.trim();
+    sayStatus.textContent = "";
+    if (!text) return;
+    prepTimer = setTimeout(async () => {
+      sayStatus.textContent = "recording…";
+      try {
+        const r = await fetch("/api/show/prepare", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }) });
+        const data = await r.json();
+        if (sayText.value.trim() !== text) return;   // typed on meanwhile
+        sayStatus.textContent = r.ok ? (data.ready ? "ready" : "") : "not ready";
+      } catch { sayStatus.textContent = ""; }
+    }, 700);
+  });
+
+  async function sayLine() {
+    const text = sayText.value.trim();
+    if (!text) return;
+    clearTimeout(prepTimer);
+    sayStatus.textContent = "saying…";
+    try {
+      const r = await fetch("/api/show/say", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }) });
+      const data = await r.json();
+      if (!r.ok) { sayStatus.textContent = ""; showError(data.error || `HTTP ${r.status}`); return; }
+      sayStatus.textContent = "";
+      sayText.value = "";
+    } catch (e) {
+      sayStatus.textContent = "";
+      showError(String(e));
+    }
+  }
+
+  $("say-btn").onclick = sayLine;
+  sayText.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") { ev.preventDefault(); sayLine(); }
+    else if (ev.key === "Escape") { ev.preventDefault(); stopAll(); }
   });
 
   el.stopBtn.onclick = stopAll;

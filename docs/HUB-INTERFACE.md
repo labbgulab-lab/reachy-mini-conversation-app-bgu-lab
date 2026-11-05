@@ -173,6 +173,48 @@ than leaving a dead link.
 
 ---
 
+## 8. Wizard of Oz lines, live captions, deploying without the venv (2026-11-05)
+
+**Typed lines.** The operator types a line nobody scripted; it is recorded in
+the show voice (voice, model and style from `show/cues.json`, Gemini TTS on the
+Gemini key) while they type, so Say is instant. Code: `show_lines.py`.
+
+| Route | Body | Answer |
+|---|---|---|
+| `POST /api/show/prepare` | `{text, wait?: true}` | `{id, ready, ms, text, voice}`. `ms` = clip length. Blocks until recorded (30 s cap) unless `wait: false`. Safe to call on every debounced keystroke: a recorded line is a cache hit, a line being recorded is shared. |
+| `POST /api/show/say` | `{text}` | `{played: true, prepared, ms, id, text, waited_ms}`. Plays the prepared clip at once (`prepared: true`), or records it first (`prepared: false`, `waited_ms` = the wait). Same rules as firing an audio cue: idle or in a conversation (else 409 `invalid_state`), cuts what is playing, `POST /api/show/stop` silences it. |
+| `GET /api/show/said` | — | `{said: [{id, text, ms, prepared, at}]}`, the last 50, oldest first |
+
+Errors: `{error: "<sentence>", code}` with `code` one of `EMPTY`, `TOO_LONG`
+(over 600 characters), `NO_KEY`, `RATE_LIMITED`, `TTS_FAILED`, `NOT_READY`
+(504, still recording after 30 s), `INVALID_STATE` (409), `SHOW_FAILED`
+(e.g. robot not connected).
+
+Events on `/ws`:
+- `show.line.ready` `{id, text, ms}` when a typed line finishes recording.
+- `show.said` `{id, text, ms, prepared, at}` when a typed line is played (the "Said" history).
+- The clip itself plays like a cue: `show.cue.started` / `show.cue.ended` with
+  `cue_id: "said:<id>"`, `label: "Said"`, plus `said: true` and `text`.
+
+Cache: `show/audio/said/<id>.wav` on the robot (git-ignored, not shipped by
+`--with-show`), keyed by (text, voice, style, model), capped at 100 clips,
+least recently used first out.
+
+**Live captions.** `conversation.partial` `{turn, turn_id, who: "robot"|"user",
+text, delta}` is sent every time a piece of transcription arrives in a turn.
+`text` is everything so far in that turn (replace, don't append); the turn's
+`transcript.robot` / `transcript.user` stays the final. All three backends send
+it (Gemini Live output transcription, GPT-Live `output_transcript.delta`, the
+ElevenLabs layer, where the text runs slightly ahead of the voice).
+
+**Deploy.** `tools/deploy_robot_app.py` and `tools/deploy_robot_player.py`
+read their constants from `deploy_config.py`, not `conversation.py`, so they
+run under any Python 3 with `paramiko` (the hub's own). SSH login from
+`ROBOT_USER` / `ROBOT_PASSWORD`, default the robot's factory login. Flags and
+behaviour unchanged.
+
+---
+
 ## Quick reference — every flag the hub passes
 
 | Flag | Value | Required |

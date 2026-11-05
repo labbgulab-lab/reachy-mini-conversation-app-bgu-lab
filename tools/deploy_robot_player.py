@@ -26,8 +26,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import fleet  # noqa: E402
-from conversation import (ROBOT_HOST, ROBOT_USER, ROBOT_PASSWORD,  # noqa: E402
-                          ROBOT_PYTHON)
+# deploy_config, not conversation: this runs under the hub's Python, which
+# has paramiko but not the speech stack conversation imports.
+from deploy_config import (ROBOT_HOST, ROBOT_USER, ROBOT_PASSWORD,  # noqa: E402
+                           ROBOT_PYTHON)
 
 LOCAL = ROOT / "robot_streaming_player.py"
 REMOTE = "/home/pollen/scripts/robot_streaming_player.py"

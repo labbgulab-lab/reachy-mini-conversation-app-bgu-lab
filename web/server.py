@@ -29,6 +29,7 @@ from providers import ProviderUnavailable
 from show_player import ShowError
 import show_editor
 from show_editor import ShowEditError
+from show_lines import LineError
 
 
 log = logging.getLogger("reachy.web")
@@ -248,6 +249,48 @@ def create_app(manager: SystemManager, broadcaster) -> FastAPI:
     @app.post("/api/show/stop")
     async def api_show_stop():
         return manager.stop_cue()
+
+    # ----- show mode (Wizard of Oz: lines typed on the spot) -----
+    #
+    # prepare records a line in the show voice while the operator is still
+    # typing (the hub debounces), so say can play it at once. Both are safe to
+    # repeat: a recorded line is a cache hit and a line being recorded is
+    # shared, never recorded twice.
+
+    def _line_error(e: LineError) -> JSONResponse:
+        return JSONResponse(status_code=e.status,
+                            content={"error": str(e), "code": e.code})
+
+    @app.post("/api/show/prepare")
+    async def api_show_prepare(body: dict = Body(...)):
+        """{text, wait?: true} -> {id, ready, ms, text, voice}. ms is the
+        clip's length; ready is false when wait is off or the recording is
+        still running after 30 s."""
+        try:
+            return await asyncio.to_thread(
+                manager.lines.prepare, body.get("text"), bool(body.get("wait", True)))
+        except LineError as e:
+            return _line_error(e)
+
+    @app.post("/api/show/say")
+    async def api_show_say(body: dict = Body(...)):
+        """{text} -> {played, prepared, ms, id, text, waited_ms}. Plays the
+        prepared clip at once, or records it first (prepared: false)."""
+        try:
+            return await asyncio.to_thread(manager.say_line, body.get("text"))
+        except InvalidSystemState as e:
+            return JSONResponse(status_code=409, content={
+                "error": "invalid_state", "state": e.state, "code": "INVALID_STATE"})
+        except LineError as e:
+            return _line_error(e)
+        except ShowError as e:
+            return JSONResponse(status_code=400,
+                                content={"error": str(e), "code": "SHOW_FAILED"})
+
+    @app.get("/api/show/said")
+    async def api_show_said():
+        """The lines said this session, oldest first (the last 50)."""
+        return {"said": manager.lines.said()}
 
     # ----- show mode (editing the script from the board) -----
     #

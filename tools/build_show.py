@@ -117,12 +117,15 @@ def _retry_delay_from(err: Exception) -> float:
     return float(m.group(1)) + 2.0 if m else DEFAULT_RETRY_S
 
 
-def synthesise(client, model: str, voice: str, style: str, text: str) -> np.ndarray:
+def synthesise(client, model: str, voice: str, style: str, text: str,
+               pace: bool = True) -> np.ndarray:
     """One line -> int16 mono @ 24 kHz. The style prefix is an instruction to
     the TTS model, not something it reads aloud.
 
     Paced to stay inside the per-minute quota, and retried on 429 using the
-    delay the API asks for."""
+    delay the API asks for. pace=False (a Wizard of Oz line typed on stage,
+    show_lines.py) skips both: one attempt, now, and a 429 is raised to the
+    caller rather than waited out for 40 seconds."""
     global _last_request_t
     from google.genai import types
 
@@ -137,9 +140,10 @@ def synthesise(client, model: str, voice: str, style: str, text: str) -> np.ndar
     )
 
     resp = None
-    for attempt in range(1, MAX_RETRIES + 1):
+    attempts = MAX_RETRIES if pace else 1
+    for attempt in range(1, attempts + 1):
         wait = MIN_REQUEST_INTERVAL_S - (time.monotonic() - _last_request_t)
-        if wait > 0:
+        if pace and wait > 0:
             time.sleep(wait)
         try:
             _last_request_t = time.monotonic()
@@ -149,7 +153,7 @@ def synthesise(client, model: str, voice: str, style: str, text: str) -> np.ndar
         except Exception as e:
             if "RESOURCE_EXHAUSTED" not in str(e) and "429" not in str(e):
                 raise
-            if attempt == MAX_RETRIES:
+            if attempt == attempts:
                 raise
             delay = _retry_delay_from(e)
             print(f"\n      rate limited; waiting {delay:.0f}s "

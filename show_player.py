@@ -157,16 +157,42 @@ class ShowPlayer:
             if not wav.exists():
                 raise ShowError(f"no audio for {cue_id!r} — run tools/build_show.py")
 
-            self._stop_flag.clear()
-            self._playing = cue_id
-            self._thread = threading.Thread(
-                target=self._stream_worker, args=(robot, wav, cue),
-                name=f"show-{cue_id}", daemon=True)
-            self._thread.start()
+            self._start_audio_locked(robot, wav, cue)
             log.info("cue %s: %.1fs audio%s", cue_id, cue.get("duration_s") or 0,
                      f" + {cue['motion']}" if cue["motion"] else "")
             self._emit("show.cue.started", cue)
             return cue
+
+    def play_line(self, line_id: str, wav: Path, text: str,
+                  duration_s: float | None) -> dict:
+        """Play a typed Wizard of Oz line (show_lines.py) exactly like an audio
+        cue: it cuts whatever is playing, STOP silences it, and it emits the
+        same show.cue.started / show.cue.ended events. The cue id is
+        "said:<id>" so a board never mistakes it for a scripted cue."""
+        robot = self._robot_getter()
+        if robot is None or not robot.connected:
+            raise ShowError("robot not connected")
+        if not wav.exists():
+            raise ShowError("that line has no recording")
+        cue = {"id": f"said:{line_id}", "label": "Said", "text": text,
+               "motion": None, "duration_s": duration_s, "has_audio": True,
+               "said": True}
+        with self._lock:
+            self._stop_playback_locked(robot, clear_audio=True)
+            self._start_audio_locked(robot, wav, cue)
+        log.info("said %s: %.1fs audio", line_id, duration_s or 0)
+        self._emit("show.cue.started", cue)
+        return cue
+
+    def _start_audio_locked(self, robot, wav: Path, cue: dict) -> None:
+        """Start streaming one WAV. Caller holds _lock and has already stopped
+        whatever was playing."""
+        self._stop_flag.clear()
+        self._playing = cue["id"]
+        self._thread = threading.Thread(
+            target=self._stream_worker, args=(robot, wav, cue),
+            name=f"show-{cue['id']}", daemon=True)
+        self._thread.start()
 
     def stop(self) -> None:
         """Silence immediately and return the robot to breathing. The panic
@@ -252,6 +278,10 @@ class ShowPlayer:
             payload.update({"cue_id": cue["id"], "label": cue["label"],
                             "duration_s": cue.get("duration_s"),
                             "has_audio": cue["has_audio"]})
+            if cue.get("said"):
+                # A typed line is in no catalog, so the board cannot look its
+                # text up by id; carry it.
+                payload.update({"said": True, "text": cue.get("text") or ""})
         try:
             self._broadcast(payload)
         except Exception:

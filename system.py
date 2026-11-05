@@ -54,6 +54,7 @@ from conversation import (
 )
 from logging_setup import open_conversation_log, close_conversation_log
 from show_player import ShowPlayer, ShowError
+from show_lines import LineStore, LineError
 
 
 log = logging.getLogger("reachy.system")
@@ -169,6 +170,11 @@ class SystemManager:
         # itself, because stop_system/start_system replace self.robot.
         self.show = ShowPlayer(lambda: self.robot,
                                broadcast=self.broadcaster.broadcast_threadsafe)
+        # Wizard of Oz lines typed on the spot, recorded in the show voice
+        # (Gemini TTS, so on the Gemini key whichever brain is chosen).
+        self.lines = LineStore(
+            key_getter=lambda: self._credential_for(creds_mod.GEMINI).key,
+            broadcast=self.broadcaster.broadcast_threadsafe)
         # Phase B heartbeat bookkeeping.
         self._heartbeat_task: asyncio.Task | None = None
         self._hb_misses = 0
@@ -378,6 +384,9 @@ class SystemManager:
             # substates. The hook fires from both the event loop and the mic
             # worker thread, so the broadcast goes through broadcast_threadsafe.
             conv_mod.set_substate_hook(lambda raw: self._on_substate(conv, raw))
+            # Live captions: the words as they arrive, before the final
+            # transcript.robot / transcript.user line of the turn.
+            conv_mod.set_partial_hook(self._on_partial)
             # Attach the per-conversation laptop.log handler; base handlers
             # (console + system log + WS) stay in place and keep mirroring.
             self._conv_log_handler = open_conversation_log(convo_dir.dir)
@@ -395,6 +404,14 @@ class SystemManager:
     def _on_transcript(self, role: str, turn_id: int, text: str) -> None:
         event = "transcript.user" if role == "user" else "transcript.robot"
         self._broadcast({"event": event, "turn_id": turn_id, "text": text})
+
+    def _on_partial(self, who: str, turn_id: int, text: str, delta: str) -> None:
+        """conversation.partial: {turn, turn_id, who: robot|user, text, delta}.
+        text is everything heard so far this turn (replace, don't append);
+        the turn's transcript.robot / transcript.user event is the final."""
+        self._broadcast({"event": "conversation.partial", "turn": turn_id,
+                         "turn_id": turn_id, "who": who, "text": text,
+                         "delta": delta})
 
     def _on_turn_aborted(self, turn_id: int, reason: str) -> None:
         self._broadcast({"event": "turn.aborted", "turn_id": turn_id, "reason": reason})
@@ -437,6 +454,7 @@ class SystemManager:
                              "message": f"{type(e).__name__}: {e}"})
         finally:
             conv_mod.set_substate_hook(None)
+            conv_mod.set_partial_hook(None)
             close_conversation_log(self._conv_log_handler)
             self._conv_log_handler = None
             summary = conv.summary
@@ -541,6 +559,29 @@ class SystemManager:
         self.show.stop()
         return {"stopped": True}
 
+    def _check_show_state(self) -> None:
+        if self.state not in (SystemState.IDLE_BREATHING,
+                              SystemState.CONVERSATION_RUNNING):
+            raise InvalidSystemState(self.state.name)
+
+    def say_line(self, text: str) -> dict:
+        """Wizard of Oz: play a typed line now, through the show player, with
+        the same rules as firing an audio cue (allowed while idle or in a
+        conversation, cuts what is playing, STOP silences it). Plays the clip
+        prepared while the operator typed; records it first when it is not
+        ready. Blocking (up to one TTS call): call it off the event loop.
+        Raises InvalidSystemState, LineError or ShowError."""
+        self._check_show_state()
+        line = self.lines.ensure(text)
+        # The recording may have taken seconds; the system may have stopped.
+        self._check_show_state()
+        self.show.play_line(line["id"], line["path"], line["text"],
+                            line["ms"] / 1000.0 if line["ms"] else None)
+        self.lines.record_said(line)
+        return {"played": True, "prepared": line["prepared"], "ms": line["ms"],
+                "id": line["id"], "text": line["text"],
+                "waited_ms": line["waited_ms"]}
+
     async def start_system(self, reason: str = "user_start") -> dict:
         """STOPPED -> STARTING -> IDLE_BREATHING. Brings the robot side back up
         (fresh SSH + robot player) reusing the already-loaded VAD and client.
@@ -571,6 +612,10 @@ class SystemManager:
             self.show.stop()
         except Exception:
             log.exception("show.stop failed during shutdown")
+        try:
+            self.lines.shutdown()
+        except Exception:
+            log.exception("lines.shutdown failed during shutdown")
         if self.state in (SystemState.SHUTTING_DOWN, SystemState.STOPPED):
             # Already torn down (or never came up). Still ensure robot closed.
             if self.robot is not None:
@@ -713,6 +758,13 @@ class SystemManager:
         spec = self._session_spec(provider=provider, credential=credential,
                                   voice_layer=voice_layer)
         return spec, client
+
+    @staticmethod
+    def _safe_describe(spec) -> str:
+        try:
+            return SystemManager._describe_spec(spec)
+        except Exception:
+            return ""
 
     @staticmethod
     def _describe_spec(spec: SessionSpec) -> str:
@@ -906,6 +958,9 @@ class SystemManager:
                 "started_at": self.conversation.started_at,
                 "turn_count": self.conversation.turn,
                 "persona": self.conversation.session_spec.persona_summary,
+                # The conversation.started backend line, so a page opened
+                # mid-conversation can show it too (parity X15).
+                "backend": self._safe_describe(self.conversation.session_spec),
             }
         return {
             "state": self.state.name,

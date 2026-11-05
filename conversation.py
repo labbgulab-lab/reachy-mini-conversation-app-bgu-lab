@@ -77,12 +77,16 @@ from vad import SileroVAD
 # Default is the robot's address on the home WiFi. It changes when the robot
 # joins a different network — see "If the robot moved" in README.md, and pass
 # --robot-host to override without editing this file.
-ROBOT_HOST_DEFAULT = "10.100.102.18"
-ROBOT_HOST = os.environ.get("REACHY_ROBOT_HOST", ROBOT_HOST_DEFAULT)
-ROBOT_USER = os.environ.get("ROBOT_USER", "pollen")
-ROBOT_PASSWORD = os.environ.get("ROBOT_PASSWORD", "root")
-ROBOT_PYTHON = "/venvs/mini_daemon/bin/python"
-ROBOT_STREAMING_PLAYER = "/home/pollen/scripts/robot_streaming_player.py"
+# The values live in deploy_config.py so the deploy tools can read them
+# without importing this module (and the speech stack behind it).
+from deploy_config import (  # noqa: E402,F401  (re-exported)
+    ROBOT_HOST_DEFAULT,
+    ROBOT_HOST,
+    ROBOT_USER,
+    ROBOT_PASSWORD,
+    ROBOT_PYTHON,
+    ROBOT_STREAMING_PLAYER,
+)
 ROBOT_OUTPUT_RATE = 16000   # what the robot plays at
 ROBOT_READY_TIMEOUT_S = 30   # how long to wait for the robot to come up
 
@@ -537,6 +541,33 @@ _SUBSTATE_HOOK: "Callable[[str], None] | None" = None
 def set_substate_hook(fn: "Callable[[str], None] | None") -> None:
     global _SUBSTATE_HOOK
     _SUBSTATE_HOOK = fn
+
+
+# Live captions: called as (who, turn_id, text_so_far, delta) every time a
+# piece of transcription arrives during a turn -- who is "robot" (the
+# backend's output transcription, i.e. what the robot is saying) or "user".
+# Every backend lands here: Gemini Live sends output_transcription pieces,
+# GPT-Live's output_transcript.delta and the ElevenLabs layer are adapted into
+# the same shape (providers/base.py gemini_like). With ElevenLabs the text
+# arrives a little ahead of the voice, since it is what EL is given to speak.
+# Must be thread-safe and must not raise; SystemManager wires it to
+# broadcast_threadsafe. None between conversations.
+_PARTIAL_HOOK: "Callable[[str, int, str, str], None] | None" = None
+
+
+def set_partial_hook(fn: "Callable[[str, int, str, str], None] | None") -> None:
+    global _PARTIAL_HOOK
+    _PARTIAL_HOOK = fn
+
+
+def _partial(who: str, turn_id: int, parts: "list[str]", delta: str) -> None:
+    hook = _PARTIAL_HOOK
+    if hook is None:
+        return
+    try:
+        hook(who, turn_id, "".join(parts).strip(), delta)
+    except Exception:
+        log_main.exception("partial hook failed")
 
 
 def _reset_tool_counter() -> None:
@@ -2103,6 +2134,7 @@ async def drain_one_turn_streaming(
             if sc.input_transcription and sc.input_transcription.text:
                 txt = sc.input_transcription.text
                 user_parts.append(txt)
+                _partial("user", t.turn, user_parts, txt)
                 if _DIRECTOR is not None:
                     _DIRECTOR.user_text(txt)
                 _emit("gemini.recv.text", kind="user", text=txt)
@@ -2111,6 +2143,7 @@ async def drain_one_turn_streaming(
             if sc.output_transcription and sc.output_transcription.text:
                 txt = sc.output_transcription.text
                 asst_parts.append(txt)
+                _partial("robot", t.turn, asst_parts, txt)
                 if _DIRECTOR is not None:
                     _DIRECTOR.robot_text(txt)
                 _emit("gemini.recv.text", kind="assistant", text=txt)
