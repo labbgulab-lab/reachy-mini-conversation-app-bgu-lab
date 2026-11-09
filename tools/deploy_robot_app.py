@@ -7,7 +7,8 @@ and its weights, so `laptop_chat.py --local-robot` can run on the robot itself
 with the K11 receiver in the robot's own USB.
 
     python tools\\deploy_robot_app.py                 # sync + verify
-    python tools\\deploy_robot_app.py --with-show     # also push show/ audio
+    python tools\\deploy_robot_app.py --with-show     # also overwrite show/ (without it,
+                                                      # only files the robot lacks)
     python tools\\deploy_robot_app.py --check         # verify only, no copy
 
 Lands in /home/pollen/reachy_chat/. Only files whose size or mtime differ are
@@ -125,10 +126,33 @@ NEVER_OVERWRITE = {"presets.json", "persona.json", "robot_identity.json"}
 PIP_DEPS = {"google.genai": "google-genai", "sounddevice": "sounddevice",
             "soundfile": "soundfile"}
 
+# Exact versions for the libraries whose API the app depends on, the same
+# as requirements.txt. Unpinned, a robot set up on 2026-11-09 (reachy9) got
+# google-genai 3.0.0 and every Gemini Live session failed with HTTP 404 at
+# the WebSocket handshake. A robot with another version is moved to this one.
+# Nothing in the daemon venv requires google-genai (checked on daemon 1.14.0).
+PIP_PINS = {"google.genai": "2.23.0"}
+
+
+def _installed_version(c: paramiko.SSHClient, module: str) -> str:
+    """The module's __version__ on the robot; "" when it does not import."""
+    _in, out, _err = c.exec_command(
+        f"{ROBOT_PYTHON} -c 'import {module} as m; print(m.__version__)'")
+    text = out.read().decode("utf-8", "replace").strip()
+    return text if out.channel.recv_exit_status() == 0 else ""
+
 
 def _ensure_deps(c: paramiko.SSHClient) -> None:
     missing = []
     for module, package in PIP_DEPS.items():
+        pin = PIP_PINS.get(module)
+        if pin:
+            have = _installed_version(c, module)
+            if have != pin:
+                if have:
+                    print(f"  {package} {have} on the robot, the app needs {pin}")
+                missing.append(f"{package}=={pin}")
+            continue
         _in, out, _err = c.exec_command(f"{ROBOT_PYTHON} -c 'import {module}'")
         if out.channel.recv_exit_status() != 0:
             missing.append(package)
@@ -207,6 +231,26 @@ def deploy_one(robot, args) -> int:
             for p in _iter_dir(local_dir):
                 rel = p.relative_to(ROOT).as_posix()
                 planned.append((p, f"{REMOTE_ROOT}/{rel}"))
+
+        # Without --with-show, show/ is still seeded: any file the robot lacks
+        # is copied, none it has is touched. A new robot gets the Wizard of Oz
+        # cues (2026-11-09: reachy9 had no show/cues.json, so the Wizard of Oz
+        # tab had no cues and "rebuild" failed), and cues edited on a robot
+        # from the board are never overwritten.
+        if not args.with_show:
+            for d in SHOW_DIRS:
+                local_dir = ROOT / d
+                if not local_dir.is_dir():
+                    continue
+                for p in _iter_dir(local_dir):
+                    rel = p.relative_to(ROOT).as_posix()
+                    if "backups" in p.relative_to(local_dir).parts:
+                        continue
+                    remote = f"{REMOTE_ROOT}/{rel}"
+                    try:
+                        sftp.stat(remote)
+                    except IOError:
+                        planned.append((p, remote))
 
         sent = skipped = 0
         total_bytes = 0
